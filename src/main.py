@@ -48,7 +48,7 @@ def get_dataset():
 def train():
     lr = 0.001
     weight_decay=1e-4
-    epochs = 10
+    epochs = 5
     batch_size = 32
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -90,7 +90,7 @@ def test(dataset, seed, pruned=False):
         correct += torch.sum(torch.eq(pred_labels, labels)).item()
         total += len(labels)
         end_time = time.time()
-        inference_time = self.simulation_data._append(
+        inference_time = inference_time._append(
             {'Batch': batch_index,'Time': end_time - start_time},
             ignore_index=True
         )
@@ -102,6 +102,7 @@ if __name__ == '__main__':
 
     train_dataset, test_dataset = get_dataset()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f'Using device: {device}')
     batch_size = 32
     max_seed = 10
     
