@@ -94,7 +94,7 @@ def test(dataset, seed, pruned=False):
             {'Batch': batch_index,'Time': end_time - start_time},
             ignore_index=True
         )
-    inference_time.to_csv(f'data/inference-time-seeed-{seed}-pruned-{pruned}.csv', ignore_index=True)
+    inference_time.to_csv(f'data/inference-time-seeed-{seed}-pruned-{pruned}.csv', index=False)
     accuracy = correct / total
     return loss, accuracy
 
