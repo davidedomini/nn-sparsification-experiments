@@ -26,7 +26,7 @@ class NNMnist(nn.Module):
         return F.log_softmax(x, dim=1)
 
 
-def post_prune_model(amount):
+def post_prune_model(model, amount):
     # Pruning
     for _, module in model.named_modules():
         if isinstance(module, nn.Linear):
@@ -48,7 +48,7 @@ def get_dataset():
 def train():
     lr = 0.001
     weight_decay=1e-4
-    epochs = 5
+    epochs = 1
     batch_size = 32
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -73,7 +73,7 @@ def train():
     return sum(losses) / len(losses)
 
 
-def test(dataset, seed, pruned=False):
+def test(model, sparsity, dataset, seed, pruned=False):
     criterion = nn.NLLLoss()
     model.eval()
     loss, total, correct = 0.0, 0.0, 0.0
@@ -91,22 +91,24 @@ def test(dataset, seed, pruned=False):
         total += len(labels)
         end_time = time.time()
         inference_time = inference_time._append(
-            {'Batch': batch_index,'Time': end_time - start_time},
+            {'Batch': batch_index,'Time': end_time - start_time, 'Accuracy': correct / total},
             ignore_index=True
         )
-    inference_time.to_csv(f'data/inference-time-seeed-{seed}-pruned-{pruned}.csv', index=False)
-    accuracy = correct / total
-    return loss, accuracy
+    file_name = f'data-main/inference-time-seeed-{seed}-pruned-{pruned}'
+    if pruned:
+        file_name += f'-sparsity-{sparsity}'
+    inference_time.to_csv(f'{file_name}.csv', index=False)
 
 if __name__ == '__main__':
 
     train_dataset, test_dataset = get_dataset()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f'Using device: {device}')
+
     batch_size = 32
-    max_seed = 10
+    max_seed = 1
     
-    data_output_directory = Path('data')
+    data_output_directory = Path('data-main')
     data_output_directory.mkdir(parents=True, exist_ok=True)
 
     for seed in range(max_seed):
@@ -114,6 +116,36 @@ if __name__ == '__main__':
         model = NNMnist()
         model.to(device)
         train()
-        test(test_dataset, seed)
-        post_prune_model(0.5)
-        test(test_dataset, seed, True)
+        # test(model, 0.0, test_dataset, seed)
+        # for sparsity in [0.3, 0.5, 0.7, 0.9]:
+        for sparsity in [0.9]:
+            sparse_model = NNMnist()
+            sparse_model.load_state_dict(copy.deepcopy(model.state_dict()))
+            post_prune_model(sparse_model, sparsity)
+            # test(sparse_model, sparsity, test_dataset, seed, True)
+        data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        image, _ = next(iter(data_loader))
+
+        torch.onnx.export(
+            model, 
+            image, 
+            "mnist_model.onnx",
+            export_params=True, 
+            opset_version=11, 
+            do_constant_folding=True,
+            input_names=['input'], 
+            output_names=['output'], 
+            dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
+        )
+
+        torch.onnx.export(
+            sparse_model, 
+            image, 
+            "mnist_model_sparse.onnx",
+            export_params=True, 
+            opset_version=11, 
+            do_constant_folding=True,
+            input_names=['input'], 
+            output_names=['output'], 
+            dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
+        )
