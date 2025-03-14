@@ -6,10 +6,10 @@ import pandas as pd
 from torch import nn
 from pathlib import Path
 import torch.nn.functional as F
+import torchvision.models as models
 import torch.nn.utils.prune as tprune
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Dataset, random_split
-
 
 class NNMnist(nn.Module):
 
@@ -38,10 +38,20 @@ def post_prune_model(model, amount):
             tprune.remove(module, 'weight')
 
 
-def get_dataset():
-    transform = transforms.Compose([transforms.ToTensor()])
-    train_dataset = datasets.MNIST(root='dataset', train=True, download=True, transform=transform)
-    test_dataset = datasets.MNIST(root='dataset', train=True, download=True, transform=transform)
+def get_dataset(name):
+    if name == 'mnist':
+        transform = transforms.Compose([transforms.ToTensor()])
+        train_dataset = datasets.MNIST(root='dataset', train=True, download=True, transform=transform)
+        test_dataset = datasets.MNIST(root='dataset', train=True, download=True, transform=transform)
+    else: 
+        transform = transforms.Compose([
+            transforms.ToTensor(),  # Convertire in tensore
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # Normalizzare tra -1 e 1
+        ])
+        # Scaricare il dataset CIFAR-10 (Train e Test set)
+        train_dataset = datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
+        test_dataset = datasets.CIFAR10(root="./data", train=False, download=True, transform=transform)
+
     return train_dataset, test_dataset
 
 
@@ -101,12 +111,13 @@ def test(model, sparsity, dataset, seed, pruned=False):
 
 if __name__ == '__main__':
 
-    train_dataset, test_dataset = get_dataset()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # train_dataset, test_dataset = get_dataset('cifar10')
+    train_dataset, test_dataset = get_dataset('mnist')
+    device = 'cpu' #torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f'Using device: {device}')
 
     batch_size = 32
-    max_seed = 1
+    max_seed = 20
     
     data_output_directory = Path('data-main')
     data_output_directory.mkdir(parents=True, exist_ok=True)
@@ -114,38 +125,17 @@ if __name__ == '__main__':
     for seed in range(max_seed):
         print(f'Seed --- {seed}')
         model = NNMnist()
+        # model = models.resnet50(pretrained=True) #NNMnist()
+        # model.fc = torch.nn.Linear(model.fc.in_features,  len(train_dataset.classes))
         model.to(device)
         train()
-        # test(model, 0.0, test_dataset, seed)
-        # for sparsity in [0.3, 0.5, 0.7, 0.9]:
-        for sparsity in [0.9]:
+        print(f'Sparsity --- 0.0')
+        test(model, 0.0, test_dataset, seed)
+        for sparsity in [0.3, 0.5, 0.7, 0.9]:
+            print(f'Sparsity --- {sparsity}')
             sparse_model = NNMnist()
+            # sparse_model = models.resnet50(pretrained=True) #NNMnist()
+            # sparse_model.fc = torch.nn.Linear(sparse_model.fc.in_features,  len(train_dataset.classes))
             sparse_model.load_state_dict(copy.deepcopy(model.state_dict()))
             post_prune_model(sparse_model, sparsity)
-            # test(sparse_model, sparsity, test_dataset, seed, True)
-        data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-        image, _ = next(iter(data_loader))
-
-        torch.onnx.export(
-            model, 
-            image, 
-            "mnist_model.onnx",
-            export_params=True, 
-            opset_version=11, 
-            do_constant_folding=True,
-            input_names=['input'], 
-            output_names=['output'], 
-            dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
-        )
-
-        torch.onnx.export(
-            sparse_model, 
-            image, 
-            "mnist_model_sparse.onnx",
-            export_params=True, 
-            opset_version=11, 
-            do_constant_folding=True,
-            input_names=['input'], 
-            output_names=['output'], 
-            dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
-        )
+            test(sparse_model, sparsity, test_dataset, seed, True)
